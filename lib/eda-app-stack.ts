@@ -22,51 +22,51 @@ export class EDAAppStack extends cdk.Stack {
       publicReadAccess: false,
     });
 
+     // Integration infrastructure
 
-    const queue = new sqs.Queue(this, "img-created-queue", {
+     const imageProcessQueue = new sqs.Queue(this, "img-created-queue", {
       receiveMessageWaitTime: cdk.Duration.seconds(10),
     });
 
+    const newImageTopic = new sns.Topic(this, "NewImageTopic", {
+      displayName: "New Image topic",
+    }); 
 
-     // Lambda functions
+  // Lambda functions
 
-     const processImageFn = new lambdanode.NodejsFunction(
-      this,
-      "ProcessImageFn",
-      {
-        runtime: lambda.Runtime.NODEJS_18_X,
-        entry: `${__dirname}/../lambdas/processImage.ts`,
-        timeout: cdk.Duration.seconds(15),
-        memorySize: 128,
-      }
-    );
+  const processImageFn = new lambdanode.NodejsFunction(
+    this,
+    "ProcessImageFn",
+    {
+      runtime: lambda.Runtime.NODEJS_18_X,
+      entry: `${__dirname}/../lambdas/processImage.ts`,
+      timeout: cdk.Duration.seconds(15),
+      memorySize: 128,
+    }
+  );
 
-    // S3 --> SQS
-    imagesBucket.addEventNotification(
-      s3.EventType.OBJECT_CREATED,
-      new s3n.SqsDestination(queue)
-    );
+ // S3 --> SQS
+ imagesBucket.addEventNotification(
+  s3.EventType.OBJECT_CREATED,
+  new s3n.SnsDestination(newImageTopic)  // Changed
+);
 
+ // SQS --> Lambda
+  const newImageEventSource = new events.SqsEventSource(imageProcessQueue, {
+    batchSize: 5,
+    maxBatchingWindow: cdk.Duration.seconds(10),
+  });
 
-    // SQS --> Lambda
-    const newImageEventSource = new events.SqsEventSource(queue, {
-      batchSize: 5,
-      maxBatchingWindow: cdk.Duration.seconds(10),
-    });
+  processImageFn.addEventSource(newImageEventSource);
 
+  // Permissions
 
-    processImageFn.addEventSource(newImageEventSource);
+  imagesBucket.grantRead(processImageFn);
 
-    // Permissions
-
-    imagesBucket.grantRead(processImageFn);
-
+  // Output
   
-
-    // Output
-    
-    new cdk.CfnOutput(this, "bucketName", {
-      value: imagesBucket.bucketName,
-    });
+  new cdk.CfnOutput(this, "bucketName", {
+    value: imagesBucket.bucketName,
+  });
   }
 }
